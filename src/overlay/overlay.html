@@ -1,0 +1,78 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>blocked</title>
+    <style>
+      :root { --bg: 12, 14, 20; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; overflow: hidden; }
+      body {
+        /* near-opaque dark scrim fully obscures whatever is underneath */
+        background: rgba(var(--bg), 0.98);
+        backdrop-filter: blur(40px);
+        -webkit-backdrop-filter: blur(40px);
+        font-family: "Segoe UI", system-ui, sans-serif;
+        color: #e9edf5;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        user-select: none;
+        cursor: default;
+      }
+      .card {
+        max-width: 720px;
+        padding: 56px 64px;
+        text-align: center;
+        animation: rise 420ms cubic-bezier(.2,.7,.2,1) both;
+      }
+      .shield {
+        font-size: 64px;
+        line-height: 1;
+        margin-bottom: 24px;
+        filter: drop-shadow(0 0 24px rgba(80,200,180,.5));
+      }
+      h1 {
+        font-size: 34px;
+        font-weight: 650;
+        letter-spacing: -0.01em;
+        margin-bottom: 20px;
+        background: linear-gradient(180deg,#fff,#aeb8c8);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      p {
+        font-size: 19px;
+        line-height: 1.6;
+        color: #b9c2d2;
+        white-space: pre-wrap;
+      }
+      .hint {
+        margin-top: 36px;
+        font-size: 14px;
+        color: #6b7587;
+        letter-spacing: .04em;
+        text-transform: uppercase;
+      }
+      @keyframes rise {
+        from { opacity: 0; transform: translateY(18px) scale(.98); }
+        to   { opacity: 1; transform: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="shield">&#128737;&#65039;</div>
+      <h1>Blocked for your well-being</h1>
+      <p id="msg"></p>
+      <div class="hint">Close the content to continue</div>
+    </div>
+    <script>
+      const { ipcRenderer } = require('electron');
+      ipcRenderer.on('overlay-message', (_e, text) => {
+        document.getElementById('msg').textContent = text || '';
+      });
+    </script>
+  </body>
+</html>

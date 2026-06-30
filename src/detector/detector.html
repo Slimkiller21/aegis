@@ -1,0 +1,14 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https: data: blob:" />
+    <title>detector</title>
+  </head>
+  <body>
+    <!-- hidden worker window: captures the screen and classifies frames -->
+    <video id="vid" autoplay muted playsinline style="display:none"></video>
+    <canvas id="cv" width="224" height="224" style="display:none"></canvas>
+    <script src="./detector.js"></script>
+  </body>
+</html>

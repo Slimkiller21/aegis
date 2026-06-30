@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    />
+    <title>NSFW Guard</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="aurora"></div>
+    <main id="root"></main>
+    <div id="modal-root"></div>
+
+    <!-- floating panic button (dashboard only; toggled by app.js) -->
+    <button id="panic" class="panic hidden" title="Feeling an urge?">
+      <span class="panic-dot"></span> Panic
+    </button>
+
+    <script src="app.js"></script>
+  </body>
+</html>

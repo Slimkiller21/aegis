@@ -1,0 +1,42 @@
+{
+  "name": "nsfw-guard",
+  "version": "0.1.0",
+  "description": "Local, always-on desktop guard that detects on-screen NSFW content in real time and blocks it. Built to help people stay off compulsive habits. 100% offline — screen frames never leave the device.",
+  "main": "src/main/main.js",
+  "author": "Slimkiller21",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "icon": "python scripts/make_icon.py",
+    "dist": "electron-builder"
+  },
+  "dependencies": {
+    "@tensorflow/tfjs": "^4.22.0",
+    "nsfwjs": "^4.2.1"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.slimkiller.nsfwguard",
+    "productName": "NSFW Guard",
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "node_modules/**/*"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/nsfwjs/dist/models/**"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
