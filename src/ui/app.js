@@ -321,10 +321,10 @@ function openSettings() {
   modal(`
     <h2>Settings</h2>
     <p>Changing protection settings requires the lock password.</p>
-    <label class="field"><span>Sensitivity — flag suggestive (not just explicit) content</span>
+    <label class="field"><span>Sensitivity</span>
       <select class="select" id="s-sexy">
-        <option value="false" ${!set.flagSexy ? 'selected' : ''}>Off (explicit only)</option>
-        <option value="true" ${set.flagSexy ? 'selected' : ''}>On (stricter)</option>
+        <option value="false" ${!set.flagSexy ? 'selected' : ''}>Balanced (fewer false alarms)</option>
+        <option value="true" ${set.flagSexy ? 'selected' : ''}>Strict (catches suggestive content too)</option>
       </select>
     </label>
     <label class="field"><span>Cooldown before protection can be disabled (seconds)</span>

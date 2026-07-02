@@ -45,8 +45,14 @@ function load() {
 }
 
 function save() {
+  // Atomic write: a crash/kill mid-write must never truncate store.json, or
+  // load() would fall back to EMPTY and silently wipe onboarding + the lock
+  // password (disabling tamper-resistance). Write a temp file, then rename.
   try {
-    fs.writeFileSync(storePath(), JSON.stringify(cached, null, 2));
+    const p = storePath();
+    const tmp = p + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(cached, null, 2));
+    fs.renameSync(tmp, p);
   } catch (e) {
     console.error('[store] save failed:', e.message);
   }

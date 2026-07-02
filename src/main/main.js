@@ -37,6 +37,19 @@ function runApp() {
   const security = require('./security');
   const enforcement = require('./enforcement');
 
+  // Persistent log so a packaged build (no console) is still debuggable.
+  function log(...args) {
+    const line = `${new Date().toISOString()} ${args.join(' ')}`;
+    console.log(line);
+    try {
+      fs.appendFileSync(path.join(app.getPath('userData'), 'log.txt'), line + '\n');
+    } catch {}
+  }
+  process.on('uncaughtException', (e) =>
+    log('[uncaught] ' + (e && e.stack ? e.stack : e)));
+  process.on('unhandledRejection', (e) =>
+    log('[unhandledRejection] ' + (e && e.stack ? e.stack : e)));
+
   let detectors = []; // [{ win, displayId }] — one hidden capturer per display
   let overlays = new Map(); // displayId -> overlay BrowserWindow (covers that display)
   let uiWin = null;
@@ -65,20 +78,28 @@ function runApp() {
   app.whenReady().then(init);
 
   async function init() {
-    cfg = config.load();
-    app.setLoginItemSettings({ openAtLogin: !!cfg.autoStart });
-    store.beginProtection();
+    try {
+      log(`[init] start packaged=${app.isPackaged} userData=${app.getPath('userData')}`);
+      cfg = config.load();
+      app.setLoginItemSettings({ openAtLogin: !!cfg.autoStart });
+      store.beginProtection();
 
-    createUI();
-    await createCapture(); // overlays + detectors for every display
-    createTray();
-    startHeartbeat();
-    if (cfg.watchdog) ensureWatchdog();
+      createUI();
+      log('[init] UI created; building capture...');
+      await createCapture(); // overlays + detectors for every display
+      log(`[init] capture built (${detectors.length} detector(s))`);
+      createTray();
+      startHeartbeat();
+      if (cfg.watchdog) ensureWatchdog();
+      log('[init] complete');
 
-    // displays come and go (docking, unplugging) -> rebuild coverage
-    screen.on('display-metrics-changed', rebuildCapture);
-    screen.on('display-added', rebuildCapture);
-    screen.on('display-removed', rebuildCapture);
+      // displays come and go (docking, unplugging) -> rebuild coverage
+      screen.on('display-metrics-changed', rebuildCapture);
+      screen.on('display-added', rebuildCapture);
+      screen.on('display-removed', rebuildCapture);
+    } catch (e) {
+      log('[init] FATAL ' + (e && e.stack ? e.stack : e));
+    }
   }
 
   // ---- main UI window (onboarding or dashboard) --------------------------
@@ -135,6 +156,26 @@ function runApp() {
     if (!detectors.length) console.error('[main] no screen sources to capture');
   }
 
+  // Bundled model files live under assets/models. Inside a packaged app they
+  // are asar-unpacked (onnxruntime needs a real file path on disk).
+  function modelAsset(name) {
+    return path
+      .join(app.getAppPath(), 'assets', 'models', name)
+      .replace('app.asar' + path.sep, 'app.asar.unpacked' + path.sep);
+  }
+
+  function detectorParams() {
+    return {
+      engine: cfg.engine,
+      marqoModelPath: modelAsset('marqo-nsfw-384.onnx'),
+      marqoMetaPath: modelAsset('marqo-nsfw-384.json'),
+      fps: cfg.fps,
+      thresholds: cfg.thresholds,
+      flagSexy: cfg.flagSexy,
+      tiling: cfg.tiling,
+    };
+  }
+
   async function createDetectorFor(display, sourceId) {
     const win = new BrowserWindow({
       show: false,
@@ -148,10 +189,7 @@ function runApp() {
     win.webContents.send('start-capture', {
       displayId: String(display.id),
       sourceId,
-      fps: cfg.fps,
-      thresholds: cfg.thresholds,
-      flagSexy: cfg.flagSexy,
-      tiling: cfg.tiling,
+      ...detectorParams(),
     });
     detectors.push({ win, displayId: String(display.id) });
   }
@@ -200,12 +238,7 @@ function runApp() {
   function restartDetector() {
     for (const d of detectors) {
       if (d.win && !d.win.isDestroyed())
-        d.win.webContents.send('update-config', {
-          fps: cfg.fps,
-          thresholds: cfg.thresholds,
-          flagSexy: cfg.flagSexy,
-          tiling: cfg.tiling,
-        });
+        d.win.webContents.send('update-config', detectorParams());
     }
   }
 
@@ -222,6 +255,11 @@ function runApp() {
   // ---- detection result -> FSM + accountability --------------------------
   ipcMain.on('nsfw-result', (_e, payload) => {
     if (paused) return;
+    if (payload.flagged) {
+      const s = payload.scores || {};
+      log('[flagged]', `${payload.engine || '?'}:${payload.category}`,
+        `nsfw=${(s.nsfw ?? 0).toFixed(2)} porn=${(s.porn ?? 0).toFixed(2)} sexy=${(s.sexy ?? 0).toFixed(2)} hentai=${(s.hentai ?? 0).toFixed(2)}`);
+    }
     const id = String(payload.displayId ?? 'primary');
     const fsm = fsmFor(id);
     const now = Date.now();
@@ -252,7 +290,7 @@ function runApp() {
     }
   });
 
-  ipcMain.on('detector-status', (_e, msg) => console.log('[detector]', msg));
+  ipcMain.on('detector-status', (_e, msg) => log('[detector]', msg));
 
   // ---- UI IPC ------------------------------------------------------------
   function status() {
