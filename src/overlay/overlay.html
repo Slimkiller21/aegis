@@ -4,16 +4,14 @@
     <meta charset="utf-8" />
     <title>blocked</title>
     <style>
-      :root { --bg: 12, 14, 20; }
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body { width: 100%; height: 100%; overflow: hidden; }
       body {
-        /* near-opaque dark scrim fully obscures whatever is underneath */
-        background: rgba(var(--bg), 0.98);
-        backdrop-filter: blur(40px);
-        -webkit-backdrop-filter: blur(40px);
+        background: rgba(9, 11, 16, 0.985);
+        backdrop-filter: blur(44px);
+        -webkit-backdrop-filter: blur(44px);
         font-family: "Segoe UI", system-ui, sans-serif;
-        color: #e9edf5;
+        color: #eef2f8;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -21,57 +19,95 @@
         cursor: default;
       }
       .card {
-        max-width: 720px;
-        padding: 56px 64px;
+        max-width: 760px;
+        padding: 48px 56px 44px;
         text-align: center;
-        animation: rise 420ms cubic-bezier(.2,.7,.2,1) both;
       }
-      .shield {
-        font-size: 64px;
-        line-height: 1;
-        margin-bottom: 24px;
-        filter: drop-shadow(0 0 24px rgba(80,200,180,.5));
+      .mark {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        font-size: 12.5px;
+        letter-spacing: .16em;
+        text-transform: uppercase;
+        color: #6f9d8e;
+        margin-bottom: 30px;
       }
-      h1 {
-        font-size: 34px;
-        font-weight: 650;
+      .mark svg { width: 16px; height: 16px; stroke: #4fae93; fill: none; stroke-width: 2; }
+      .eyebrow {
+        font-size: 13px;
+        letter-spacing: .18em;
+        text-transform: uppercase;
+        color: #7c869a;
+        margin-bottom: 22px;
+      }
+      blockquote {
+        font-size: 30px;
+        line-height: 1.42;
+        font-weight: 500;
         letter-spacing: -0.01em;
-        margin-bottom: 20px;
-        background: linear-gradient(180deg,#fff,#aeb8c8);
+        background: linear-gradient(180deg, #ffffff, #c3ccdb);
         -webkit-background-clip: text;
         background-clip: text;
         color: transparent;
       }
-      p {
-        font-size: 19px;
-        line-height: 1.6;
-        color: #b9c2d2;
-        white-space: pre-wrap;
+      .scripture blockquote { font-style: italic; }
+      cite {
+        display: block;
+        margin-top: 26px;
+        font-style: normal;
+        font-size: 16px;
+        font-weight: 600;
+        color: #58c4a3;
+        letter-spacing: .02em;
       }
-      .hint {
-        margin-top: 36px;
-        font-size: 14px;
-        color: #6b7587;
-        letter-spacing: .04em;
-        text-transform: uppercase;
-      }
+      .card { animation: rise 520ms cubic-bezier(.2,.7,.2,1) both; }
       @keyframes rise {
-        from { opacity: 0; transform: translateY(18px) scale(.98); }
+        from { opacity: 0; transform: translateY(20px) scale(.985); }
         to   { opacity: 1; transform: none; }
       }
+      /* thin progress bar that empties over the popup's lifetime */
+      .bar { position: fixed; left: 0; bottom: 0; height: 3px; width: 100%;
+             background: linear-gradient(90deg, #0b7d5e, #4fae93); transform-origin: left;
+             transform: scaleX(1); }
+      .bar.run { transition: transform linear; transform: scaleX(0); }
     </style>
   </head>
   <body>
-    <div class="card">
-      <div class="shield">&#128737;&#65039;</div>
-      <h1>Blocked for your well-being</h1>
-      <p id="msg"></p>
-      <div class="hint">Close the content to continue</div>
+    <div class="card" id="card">
+      <div class="mark">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/></svg>
+        NSFW Guard
+      </div>
+      <div class="eyebrow" id="eyebrow">A word for this moment</div>
+      <blockquote id="quote"></blockquote>
+      <cite id="cite"></cite>
     </div>
+    <div class="bar" id="bar"></div>
     <script>
       const { ipcRenderer } = require('electron');
-      ipcRenderer.on('overlay-message', (_e, text) => {
-        document.getElementById('msg').textContent = text || '';
+      const card = document.getElementById('card');
+      const bar = document.getElementById('bar');
+
+      ipcRenderer.on('overlay-quote', (_e, q) => {
+        q = q || {};
+        document.getElementById('quote').textContent = q.text || '';
+        document.getElementById('cite').textContent = q.source || '';
+        document.getElementById('eyebrow').textContent =
+          q.kind === 'scripture' ? 'Scripture' : 'A word for this moment';
+        card.classList.toggle('scripture', q.kind === 'scripture');
+        // replay the rise animation on each new quote
+        card.style.animation = 'none';
+        void card.offsetWidth;
+        card.style.animation = '';
+        // run the countdown bar over the popup duration
+        const ms = q.durationMs || 5000;
+        bar.classList.remove('run');
+        bar.style.transition = 'none';
+        bar.style.transform = 'scaleX(1)';
+        void bar.offsetWidth;
+        bar.style.transition = 'transform ' + ms + 'ms linear';
+        bar.style.transform = 'scaleX(0)';
       });
     </script>
   </body>

@@ -36,6 +36,7 @@ function runApp() {
   const store = require('./store');
   const security = require('./security');
   const enforcement = require('./enforcement');
+  const quotes = require('./quotes');
 
   // Persistent log so a packaged build (no console) is still debuggable.
   function log(...args) {
@@ -214,23 +215,35 @@ function runApp() {
     overlays.set(String(display.id), win);
   }
 
-  function showOverlay(displayId) {
-    const win = overlays.get(String(displayId)) || overlays.values().next().value;
+  // Show a reflection popup on the given display: a random quote (70% scripture
+  // / 30% historical) that auto-dismisses after cfg.quotePopupMs.
+  const overlayTimers = new Map();
+  function showQuoteOverlay(displayId) {
+    const key = String(displayId);
+    const win = overlays.get(key) || overlays.values().next().value;
     if (!win || win.isDestroyed()) return;
-    win.webContents.send('overlay-message', cfg.message);
+    const ms = cfg.quotePopupMs || 5000;
+    win.webContents.send('overlay-quote', { ...quotes.pick(), durationMs: ms });
     win.showInactive();
     win.setAlwaysOnTop(true, 'screen-saver');
+    if (overlayTimers.has(key)) clearTimeout(overlayTimers.get(key));
+    overlayTimers.set(key, setTimeout(() => hideOverlay(key), ms));
   }
   function hideOverlay(displayId) {
-    const win = overlays.get(String(displayId));
+    const key = String(displayId);
+    if (overlayTimers.has(key)) { clearTimeout(overlayTimers.get(key)); overlayTimers.delete(key); }
+    const win = overlays.get(key);
     if (win && !win.isDestroyed()) win.hide();
   }
   function hideAllOverlays() {
+    for (const t of overlayTimers.values()) clearTimeout(t);
+    overlayTimers.clear();
     for (const win of overlays.values()) if (win && !win.isDestroyed()) win.hide();
     for (const fsm of fsmByDisplay.values()) {
       fsm.state = 'CLEAN';
       fsm.escalated = false;
       fsm.cleanStreak = 0;
+      fsm.lastActionAt = 0;
     }
   }
 
@@ -265,30 +278,35 @@ function runApp() {
     const now = Date.now();
     if (payload.flagged) {
       fsm.cleanStreak = 0;
-      if (fsm.state === 'CLEAN') {
+      // Act once per episode (cooldown-gated) so persistent content re-triggers
+      // but a single frame doesn't spam-close.
+      if (now - (fsm.lastActionAt || 0) >= (cfg.actionCooldownMs || 6000)) {
+        fsm.lastActionAt = now;
         fsm.state = 'WARNING';
-        fsm.warnStart = now;
-        fsm.escalated = false;
-        showOverlay(id);
-        // log the incident (resets the clean streak) — dedup within episode
+        enforce(id);
+        showQuoteOverlay(id);
         if (store.recordIncident(payload.category, payload.score)) pushUpdate();
-      } else if (
-        fsm.state === 'WARNING' &&
-        !fsm.escalated &&
-        now - fsm.warnStart >= cfg.graceMs
-      ) {
-        fsm.escalated = true;
-        if (cfg.enforceMinimize) enforcement.minimizeForegroundWindow();
       }
     } else if (fsm.state === 'WARNING') {
       fsm.cleanStreak += 1;
-      if (fsm.cleanStreak >= cfg.clearFrames) {
-        fsm.state = 'CLEAN';
-        fsm.escalated = false;
-        hideOverlay(id);
-      }
+      if (fsm.cleanStreak >= cfg.clearFrames) fsm.state = 'CLEAN';
     }
   });
+
+  // Close the offending foreground window (browser tab or app window), falling
+  // back to minimize if closing is disabled or the window can't be identified.
+  function enforce(displayId) {
+    if (cfg.enforceClose === false) {
+      if (cfg.enforceMinimize) enforcement.minimizeForegroundWindow();
+      return;
+    }
+    enforcement.closeForeground((kind, name) => {
+      log(`[enforce] ${kind} ${name} (display ${displayId})`);
+      if ((kind === 'skip' || kind === 'none') && cfg.enforceMinimize) {
+        enforcement.minimizeForegroundWindow();
+      }
+    });
+  }
 
   ipcMain.on('detector-status', (_e, msg) => log('[detector]', msg));
 

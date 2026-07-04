@@ -34,8 +34,20 @@ const DEFAULTS = {
   // consecutive clean frames required before clearing the overlay (debounce).
   clearFrames: 3,
 
-  // escalation: minimize the offending foreground window when grace expires.
+  // primary enforcement: on detection, close the offending window — a browser
+  // active tab (Ctrl+W) or a non-browser app window (WM_CLOSE). System windows
+  // and our own app are never touched.
+  enforceClose: true,
+
+  // fallback when closing is off or the window can't be identified: minimize.
   enforceMinimize: true,
+
+  // reflection popup shown after a close: a random quote for this long.
+  quotePopupMs: 5000,
+
+  // minimum gap between enforcement actions per display, so persistent content
+  // re-triggers but a single stray frame doesn't spam-close.
+  actionCooldownMs: 6000,
 
   // start automatically on login (recovery tool should always be on).
   autoStart: true,
