@@ -275,7 +275,7 @@ function renderDashboard() {
         <div class="since">${streak.small} · longest so far: ${fmtBest(st.longestStreakMs || 0)}</div>
         <div class="hero-meta">
           <div><b>${st.daysProtected || 0}</b><small>days protected</small></div>
-          <div><b>${Math.min(100, Math.round(((st.currentStreakMs/86400000)/(s.profile.goalDays||90))*100))}%</b><small>to ${s.profile.goalDays||90}-day goal</small></div>
+          <div><b>${st.nextMilestone ? st.nextMilestone.daysToGo : '—'}</b><small>${st.nextMilestone ? `days to ${st.nextMilestone.day}-day mark` : 'all milestones cleared'}</small></div>
           <div><b>${s.status === 'active' ? 'On' : 'Off'}</b><small>real-time guard</small></div>
         </div>
       </div>
@@ -326,8 +326,29 @@ function modal(html) {
 }
 function closeModal() { modalRoot.innerHTML = ''; }
 
+// clean-streak milestone celebration (fired from main via onMilestone)
+function celebrateMilestone(m) {
+  const day = m.day;
+  const title = m.title || `${day} days clean`;
+  modal(`
+    <div class="celebrate">
+      <div class="celebrate-badge">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/></svg>
+        <span>${day}</span>
+      </div>
+      <h2>${title}</h2>
+      <p>You've held the line for <b>${day} ${day === 1 ? 'day' : 'days'}</b>. Every marker you pass makes the next one easier. Proud of you — keep going.</p>
+      <div class="modal-actions center">
+        <button class="btn btn-primary" data-ok>Onward</button>
+      </div>
+    </div>`);
+  const ok = modalRoot.querySelector('[data-ok]');
+  if (ok) ok.addEventListener('click', closeModal);
+}
+
 function openSettings() {
   const set = state.settings;
+  const em = set.email || {};
   modal(`
     <h2>Settings</h2>
     <p>Changing protection settings requires the lock password.</p>
@@ -346,7 +367,38 @@ function openSettings() {
         <option value="false" ${set.lockdown === false ? 'selected' : ''}>Off</option>
       </select>
     </label>
-    <label class="field"><span>Lock password</span>
+
+    <div class="section-head">Weekly partner report</div>
+    <p class="hint-text">Emails your accountability partner a weekly summary — streak, blocks this week, longest streak. <b>Never any screenshots, links, or history.</b> Use a dedicated email account with an app password (<a href="https://support.google.com/accounts/answer/185833" target="_blank">Gmail guide</a>).</p>
+    <label class="field"><span>Send weekly report</span>
+      <select class="select" id="e-enabled">
+        <option value="false" ${!em.enabled ? 'selected' : ''}>Off</option>
+        <option value="true" ${em.enabled ? 'selected' : ''}>On</option>
+      </select>
+    </label>
+    <label class="field"><span>Partner's email (recipient)</span>
+      <input class="input" type="email" id="e-to" placeholder="partner@example.com" value="${escapeHtml(em.partnerEmail||'')}" />
+    </label>
+    <label class="field"><span>Sending account (email)</span>
+      <input class="input" type="email" id="e-from" placeholder="aegis.reports@gmail.com" value="${escapeHtml(em.senderEmail||'')}" />
+    </label>
+    <label class="field"><span>App password ${em.hasPassword ? '<em>(saved — leave blank to keep)</em>' : ''}</span>
+      <input class="input" type="password" id="e-pass" placeholder="${em.hasPassword ? '•••••••• saved' : '16-char app password'}" />
+    </label>
+    <div class="two-col">
+      <label class="field"><span>SMTP host</span>
+        <input class="input" type="text" id="e-host" value="${escapeHtml(em.smtpHost||'smtp.gmail.com')}" />
+      </label>
+      <label class="field"><span>Port</span>
+        <input class="input" type="number" id="e-port" value="${em.smtpPort||465}" />
+      </label>
+    </div>
+    <div class="row-between">
+      <button class="btn btn-ghost btn-sm" data-test>Send test now</button>
+      <span class="test-msg" id="e-msg"></span>
+    </div>
+
+    <label class="field mt"><span>Lock password</span>
       <input class="input" type="password" id="s-pw" placeholder="Required to save" />
     </label>
     <div class="err" id="s-err"></div>
@@ -358,8 +410,37 @@ function openSettings() {
       <span>Removing Aegis is locked. Uninstalling from Windows won't work until you unlock it here.</span>
       <button class="btn btn-danger-ghost" data-uninstall>Allow uninstall…</button>
     </div>`);
+  const emailPatch = () => {
+    const p = {
+      enabled: val('#e-enabled') === 'true',
+      partnerEmail: val('#e-to').trim(),
+      senderEmail: val('#e-from').trim(),
+      smtpHost: val('#e-host').trim(),
+      smtpPort: parseInt(val('#e-port'), 10) || 465,
+      smtpSecure: (parseInt(val('#e-port'), 10) || 465) === 465,
+    };
+    const pass = val('#e-pass');
+    if (pass) p.password = pass;
+    return p;
+  };
+
   modalRoot.querySelector('[data-cancel]').addEventListener('click', closeModal);
   modalRoot.querySelector('[data-uninstall]').addEventListener('click', openUninstall);
+
+  modalRoot.querySelector('[data-test]').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    const pw = val('#s-pw');
+    const msg = modalRoot.querySelector('#e-msg');
+    // save first (needs the lock password) so the test uses current values
+    const s = await window.guard.saveEmailSettings(pw, emailPatch());
+    if (!s.ok) { msg.textContent = 'Enter the lock password to test.'; msg.className = 'test-msg err'; return; }
+    btn.disabled = true; msg.textContent = 'Sending…'; msg.className = 'test-msg';
+    const r = await window.guard.sendTestReport();
+    btn.disabled = false;
+    msg.textContent = r.ok ? 'Sent — check the inbox.' : ('Failed: ' + (r.reason || 'error'));
+    msg.className = 'test-msg ' + (r.ok ? 'ok' : 'err');
+  });
+
   modalRoot.querySelector('[data-save]').addEventListener('click', async () => {
     const pw = val('#s-pw');
     const patch = {
@@ -369,6 +450,7 @@ function openSettings() {
     };
     const r = await window.guard.updateSettings(pw, patch);
     if (!r.ok) { setErr('#s-err', 'Incorrect password.'); return; }
+    await window.guard.saveEmailSettings(pw, emailPatch());
     closeModal();
   });
 }
@@ -496,6 +578,7 @@ window.guard.onUpdate((next) => {
 });
 
 window.guard.onRequestQuit(() => openQuit());
+window.guard.onMilestone((m) => celebrateMilestone(m));
 
 // allow dashboard pause via keyboard-free path: clicking status pill opens pause
 document.addEventListener('click', (e) => {

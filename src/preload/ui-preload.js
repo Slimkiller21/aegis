@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('guard', {
   requestQuit: (pw) => ipcRenderer.invoke('ui:requestQuit', pw),
   authorizeUninstall: (pw) => ipcRenderer.invoke('ui:authorizeUninstall', pw),
   updateSettings: (pw, patch) => ipcRenderer.invoke('ui:updateSettings', { pw, patch }),
+  saveEmailSettings: (pw, patch) => ipcRenderer.invoke('ui:saveEmailSettings', { pw, patch }),
+  sendTestReport: () => ipcRenderer.invoke('ui:sendTestReport'),
   exportLog: () => ipcRenderer.invoke('ui:exportLog'),
   // live push of state changes (status, new incidents, cooldown ticks)
   onUpdate: (cb) => {
@@ -26,5 +28,11 @@ contextBridge.exposeInMainWorld('guard', {
     const fn = () => cb();
     ipcRenderer.on('ui:request-quit', fn);
     return () => ipcRenderer.removeListener('ui:request-quit', fn);
+  },
+  // a clean-streak milestone was just reached -> show a celebration
+  onMilestone: (cb) => {
+    const fn = (_e, payload) => cb(payload);
+    ipcRenderer.on('ui:milestone', fn);
+    return () => ipcRenderer.removeListener('ui:milestone', fn);
   },
 });

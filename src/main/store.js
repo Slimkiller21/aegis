@@ -24,9 +24,14 @@ const EMPTY = {
     cleanSince: 0, // start of current streak
     longestStreakMs: 0,
     totalBlocks: 0,
+    celebratedMilestones: [], // day-thresholds already celebrated THIS streak
   },
   incidents: [], // { t, category, score }
 };
+
+// Clean-streak milestones, in days. Crossing one fires a celebration + a
+// desktop notification. Reset when the streak breaks.
+const MILESTONE_DAYS = [1, 3, 7, 14, 30, 60, 90, 180, 365];
 
 let cached = null;
 
@@ -92,6 +97,7 @@ function recordIncident(category, score, dedupeMs = 60000) {
   const streak = now - (s.stats.cleanSince || now);
   if (streak > s.stats.longestStreakMs) s.stats.longestStreakMs = streak;
   s.stats.cleanSince = now;
+  s.stats.celebratedMilestones = []; // new streak can re-earn milestones
   s.stats.totalBlocks += 1;
   s.incidents.push({ t: now, category, score: Math.round((score || 0) * 100) });
   if (s.incidents.length > 1000) s.incidents = s.incidents.slice(-1000);
@@ -103,6 +109,31 @@ function currentStreakMs() {
   const s = load();
   if (!s.stats.cleanSince) return 0;
   return Date.now() - s.stats.cleanSince;
+}
+
+const streakDays = () => Math.floor(currentStreakMs() / 864e5);
+
+// The next milestone the user is working toward, and how far off it is.
+function nextMilestone() {
+  const d = streakDays();
+  const day = MILESTONE_DAYS.find((m) => m > d);
+  return day ? { day, daysToGo: day - d } : null;
+}
+
+// Return any milestones newly reached since last check and mark them claimed,
+// so each fires its celebration exactly once per streak. Idempotent.
+function claimReachedMilestones() {
+  const s = load();
+  const d = streakDays();
+  if (!Array.isArray(s.stats.celebratedMilestones)) s.stats.celebratedMilestones = [];
+  const reached = MILESTONE_DAYS.filter(
+    (m) => d >= m && !s.stats.celebratedMilestones.includes(m)
+  );
+  if (reached.length) {
+    s.stats.celebratedMilestones.push(...reached);
+    save();
+  }
+  return reached; // e.g. [7] — usually 0 or 1 entries
 }
 
 function blocksThisWeek() {
@@ -124,6 +155,7 @@ function snapshot() {
       daysProtected: s.stats.startedAt
         ? Math.floor((Date.now() - s.stats.startedAt) / 864e5)
         : 0,
+      nextMilestone: nextMilestone(),
     },
     incidents: s.incidents.slice(-50).reverse(),
   };
@@ -135,6 +167,9 @@ module.exports = {
   beginProtection,
   recordIncident,
   currentStreakMs,
+  claimReachedMilestones,
+  nextMilestone,
   snapshot,
   raw: () => cached,
+  MILESTONE_DAYS,
 };

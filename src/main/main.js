@@ -14,6 +14,7 @@ const {
   Menu,
   nativeImage,
   dialog,
+  Notification,
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -39,6 +40,7 @@ function runApp() {
   const quotes = require('./quotes');
   const updater = require('./updater');
   const lockdown = require('./lockdown');
+  const report = require('./report');
 
   // Persistent log so a packaged build (no console) is still debuggable.
   function log(...args) {
@@ -95,6 +97,10 @@ function runApp() {
       log(`[init] capture built (${detectors.length} detector(s))`);
       createTray();
       startHeartbeat();
+      checkMilestones(); // catch any crossed while the app was closed
+      setInterval(checkMilestones, 60 * 1000);
+      checkReport(); // weekly partner email if due
+      setInterval(checkReport, 60 * 60 * 1000);
       if (cfg.watchdog) ensureWatchdog();
       if (cfg.lockdown !== false) lockdown.start(log);
       updater.start({
@@ -351,12 +357,49 @@ function runApp() {
         message: cfg.message,
         disableCooldownMs: cfg.disableCooldownMs,
         lockdown: cfg.lockdown !== false,
+        email: {
+          enabled: !!(cfg.email && cfg.email.enabled),
+          partnerEmail: (cfg.email && cfg.email.partnerEmail) || '',
+          senderEmail: (cfg.email && cfg.email.senderEmail) || '',
+          smtpHost: (cfg.email && cfg.email.smtpHost) || 'smtp.gmail.com',
+          smtpPort: (cfg.email && cfg.email.smtpPort) || 465,
+          hasPassword: !!(cfg.email && cfg.email.passEnc),
+          lastReportAt: (cfg.email && cfg.email.lastReportAt) || 0,
+        },
       },
     };
   }
   function pushUpdate() {
     if (uiWin && !uiWin.isDestroyed()) uiWin.webContents.send('ui:update', fullState());
     updateTray();
+  }
+
+  // Milestones grow with the passage of time, not from an event, so we poll.
+  // Each reached threshold fires once per streak: a desktop notification + an
+  // in-app celebration the next time the dashboard is open.
+  const MILESTONE_LABEL = {
+    1: 'One day clean', 3: '3 days clean', 7: 'One week clean',
+    14: 'Two weeks clean', 30: '30 days clean', 60: '60 days clean',
+    90: '90 days clean', 180: 'Half a year clean', 365: 'One year clean',
+  };
+  function checkMilestones() {
+    let reached;
+    try { reached = store.claimReachedMilestones(); } catch { return; }
+    if (!reached || !reached.length) return;
+    const day = Math.max(...reached);
+    const title = MILESTONE_LABEL[day] || `${day} days clean`;
+    log(`[milestone] reached ${day} days`);
+    if (Notification.isSupported()) {
+      new Notification({
+        title: `Aegis — ${title} 🛡️`,
+        body: 'Another marker behind you. Keep going.',
+        silent: false,
+      }).show();
+    }
+    pushUpdate();
+    if (uiWin && !uiWin.isDestroyed()) {
+      uiWin.webContents.send('ui:milestone', { day, title });
+    }
   }
 
   ipcMain.handle('ui:getState', () => fullState());
@@ -435,6 +478,56 @@ function runApp() {
     pushUpdate();
     return { ok: true };
   });
+
+  // Partner email settings are accountability settings -> password-gated so the
+  // user can't quietly turn off their own reporting. `password` (the SMTP app
+  // password) is encrypted before it touches disk.
+  ipcMain.handle('ui:saveEmailSettings', (_e, { pw, patch }) => {
+    if (security.hasPassword() && !security.verifyPassword(pw)) {
+      return { ok: false, reason: 'bad-password' };
+    }
+    cfg = config.load();
+    const e = { ...cfg.email };
+    for (const k of ['enabled', 'partnerEmail', 'senderEmail', 'smtpHost', 'smtpPort', 'smtpSecure']) {
+      if (k in patch) e[k] = patch[k];
+    }
+    if (patch.password) e.passEnc = report.encryptSecret(patch.password);
+    cfg.email = e;
+    config.save(cfg);
+    pushUpdate();
+    return { ok: true };
+  });
+
+  ipcMain.handle('ui:sendTestReport', async () => {
+    cfg = config.load();
+    try {
+      await report.send(cfg.email, store.snapshot());
+      cfg.email.lastReportAt = Date.now();
+      config.save(cfg);
+      log('[report] test email sent to ' + cfg.email.partnerEmail);
+      return { ok: true };
+    } catch (err) {
+      log('[report] test send failed: ' + err.message);
+      return { ok: false, reason: err.message };
+    }
+  });
+
+  // Weekly cadence: send if enabled and a week has elapsed. Checked on startup
+  // and hourly.
+  async function checkReport() {
+    cfg = config.load();
+    const e = cfg.email || {};
+    if (!e.enabled) return;
+    if (Date.now() - (e.lastReportAt || 0) < (e.everyMs || 604800000)) return;
+    try {
+      await report.send(e, store.snapshot());
+      e.lastReportAt = Date.now();
+      config.save(cfg);
+      log('[report] weekly email sent to ' + e.partnerEmail);
+    } catch (err) {
+      log('[report] weekly send failed: ' + err.message);
+    }
+  }
 
   ipcMain.handle('ui:exportLog', async () => {
     const { canceled, filePath } = await dialog.showSaveDialog(uiWin, {

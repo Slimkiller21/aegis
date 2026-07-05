@@ -1,6 +1,6 @@
 {
   "name": "nsfw-guard",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Aegis — local, always-on desktop guard that detects on-screen NSFW content in real time and blocks it. Built to help people stay off compulsive habits. 100% offline — screen frames never leave the device. (package name kept as nsfw-guard so the userData folder — streaks, settings, lock password — survives the rebrand)",
   "main": "src/main/main.js",
   "author": "Slimkiller21",
@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
+    "nodemailer": "^9.0.3",
     "onnxruntime-node": "^1.27.0"
   },
   "devDependencies": {

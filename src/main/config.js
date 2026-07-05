@@ -58,6 +58,21 @@ const DEFAULTS = {
   // authorized quit/uninstall. See lockdown.js.
   lockdown: true,
 
+  // Weekly accountability email to the partner (opt-in). Sends ONLY aggregate
+  // stats (streak, blocks this week, longest) — never screenshots or content.
+  // The SMTP app password is stored OS-encrypted in `passEnc` (never plaintext).
+  email: {
+    enabled: false,
+    partnerEmail: '',
+    senderEmail: '', // the dedicated SMTP account username
+    smtpHost: 'smtp.gmail.com',
+    smtpPort: 465,
+    smtpSecure: true,
+    passEnc: '', // base64 of safeStorage-encrypted app password
+    everyMs: 604800000, // weekly
+    lastReportAt: 0,
+  },
+
   // message shown on the blocking overlay.
   message:
     "Take a breath.\n\nThis content was blocked to protect your focus and well-being.\n\nUrges pass. You are stronger than this moment — step away and do something that future-you will thank you for.",
