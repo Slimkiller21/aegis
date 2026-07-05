@@ -1,16 +1,14 @@
-// Hidden detector: grabs one display's stream and classifies it.
+// Hidden detector: grabs one display's stream and classifies it with the
+// Marqo/nsfw-image-detection-384 model (ViT-tiny, Apache-2.0) exported to ONNX
+// and run via onnxruntime-node. One probability out: NSFW. 384px input.
 // Everything stays in-process — frames are never written to disk or uploaded.
 //
-// Engines:
-//   marqo  (default) — Marqo/nsfw-image-detection-384 (ViT-tiny, Apache-2.0)
-//                      exported to ONNX, run via onnxruntime-node. One
-//                      probability out: NSFW. ~98.6% accuracy, 384px input.
-//   nsfwjs (fallback) — MobileNetV2 5-class model. Used if the ONNX model is
-//                      missing or fails to load.
-//
 // Tiling: besides the whole frame, we score a grid of sub-regions so small
-// on-screen images aren't lost when the full screen is shrunk to the model's
-// input size. The worst region across the grid drives the decision.
+// on-screen images aren't lost when the full screen is shrunk to 384px. The
+// worst region across the grid drives the decision.
+//
+// If the model can't load, we tell main so the dashboard can show a loud
+// "NOT PROTECTED" state instead of silently doing nothing.
 
 const { ipcRenderer } = require('electron');
 const fs = require('fs');
@@ -19,17 +17,15 @@ const vid = document.getElementById('vid');
 const cv = document.getElementById('cv');
 const ctx = cv.getContext('2d', { willReadFrequently: true });
 
-let engine = null; // 'marqo' | 'nsfwjs' — resolved at load time
+let ready = false;
 let ortSession = null;
-let marqoMeta = null; // { size, mean, std, labels }
-let nsfwjsModel = null;
+let meta = null; // { size, mean, std, labels }
 
 let cfg = {
-  engine: 'marqo',
   marqoModelPath: null,
   marqoMetaPath: null,
   fps: 2,
-  thresholds: { porn: 0.6, hentai: 0.6, sexy: 0.85, nsfw: 0.8, nsfwStrict: 0.6 },
+  thresholds: { nsfw: 0.8, nsfwStrict: 0.6 },
   flagSexy: false,
   tiling: { enabled: true, cols: 2, rows: 2 },
   displayId: 'primary',
@@ -43,60 +39,31 @@ function status(msg) {
 
 // ---- engine loading --------------------------------------------------------
 
-async function loadMarqo() {
+async function loadEngine() {
+  status('loading model (marqo onnx)...');
   const ort = require('onnxruntime-node');
-  marqoMeta = JSON.parse(fs.readFileSync(cfg.marqoMetaPath, 'utf8'));
+  meta = JSON.parse(fs.readFileSync(cfg.marqoMetaPath, 'utf8'));
   ortSession = await ort.InferenceSession.create(cfg.marqoModelPath, {
     executionProviders: ['cpu'],
     graphOptimizationLevel: 'all',
   });
-  cv.width = marqoMeta.size;
-  cv.height = marqoMeta.size;
-  engine = 'marqo';
-  status(`engine loaded: marqo (onnx, ${marqoMeta.size}px, labels=${marqoMeta.labels.join(',')})`);
-}
-
-async function loadNsfwjs() {
-  const nsfwjs = require('nsfwjs');
-  const tf = require('@tensorflow/tfjs');
-  await tf.ready();
-  status('tfjs backend: ' + tf.getBackend());
-  nsfwjsModel = cfg.modelUrl ? await nsfwjs.load(cfg.modelUrl) : await nsfwjs.load();
-  cv.width = 224;
-  cv.height = 224;
-  engine = 'nsfwjs';
-  status('engine loaded: nsfwjs (MobileNetV2 fallback)');
-}
-
-async function loadEngine() {
-  status('loading engine: ' + cfg.engine);
-  if (cfg.engine === 'marqo') {
-    try {
-      await loadMarqo();
-      return;
-    } catch (e) {
-      status('MARQO LOAD FAILED: ' + e.message + ' — falling back to nsfwjs');
-    }
-  }
-  try {
-    await loadNsfwjs();
-  } catch (e) {
-    status('MODEL LOAD FAILED: ' + e.message);
-    throw e;
-  }
+  cv.width = meta.size;
+  cv.height = meta.size;
+  ready = true;
+  status(`model loaded (${meta.size}px, labels=${meta.labels.join(',')})`);
 }
 
 // ---- classification --------------------------------------------------------
 
 // canvas RGBA -> normalized CHW float32 tensor for the ONNX model
-function marqoTensor() {
+function toTensor() {
   const ort = require('onnxruntime-node');
-  const s = marqoMeta.size;
+  const s = meta.size;
   const { data } = ctx.getImageData(0, 0, s, s);
   const n = s * s;
   const out = new Float32Array(3 * n);
-  const [m0, m1, m2] = marqoMeta.mean;
-  const [d0, d1, d2] = marqoMeta.std;
+  const [m0, m1, m2] = meta.mean;
+  const [d0, d1, d2] = meta.std;
   for (let i = 0; i < n; i++) {
     out[i] = (data[i * 4] / 255 - m0) / d0;
     out[n + i] = (data[i * 4 + 1] / 255 - m1) / d1;
@@ -105,29 +72,21 @@ function marqoTensor() {
   return new ort.Tensor('float32', out, [1, 3, s, s]);
 }
 
-// classify current canvas -> { nsfw } or per-class map, engine-dependent
+// classify current canvas -> p(NSFW)
 async function classifyCanvas() {
-  if (engine === 'marqo') {
-    const res = await ortSession.run({ input: marqoTensor() });
-    const logits = res.logits.data;
-    // softmax over the label set; return p(NSFW)
-    let max = -Infinity;
-    for (const v of logits) if (v > max) max = v;
-    let sum = 0;
-    const exps = [];
-    for (const v of logits) {
-      const e = Math.exp(v - max);
-      exps.push(e);
-      sum += e;
-    }
-    const idx = marqoMeta.labels.findIndex((l) => /nsfw/i.test(l));
-    return { nsfw: exps[idx] / sum };
+  const res = await ortSession.run({ input: toTensor() });
+  const logits = res.logits.data;
+  let max = -Infinity;
+  for (const v of logits) if (v > max) max = v;
+  let sum = 0;
+  const exps = [];
+  for (const v of logits) {
+    const e = Math.exp(v - max);
+    exps.push(e);
+    sum += e;
   }
-  // nsfwjs
-  const preds = await nsfwjsModel.classify(cv);
-  const out = {};
-  for (const p of preds) out[p.className.toLowerCase()] = p.probability;
-  return out;
+  const idx = meta.labels.findIndex((l) => /nsfw/i.test(l));
+  return exps[idx] / sum;
 }
 
 // ---- capture + loop --------------------------------------------------------
@@ -175,41 +134,30 @@ function regions(vw, vh) {
 }
 
 async function tick() {
-  if (!engine || classifying || !vid.videoWidth) return;
+  if (!ready || classifying || !vid.videoWidth) return;
   classifying = true;
   try {
-    // aggregate the max probability per category across all regions
-    const agg = {};
+    // worst (max) NSFW probability across the whole frame + every tile
+    let nsfw = 0;
     for (const rg of regions(vid.videoWidth, vid.videoHeight)) {
       ctx.clearRect(0, 0, cv.width, cv.height);
       ctx.drawImage(vid, rg.sx, rg.sy, rg.sw, rg.sh, 0, 0, cv.width, cv.height);
-      const scores = await classifyCanvas();
-      for (const k of Object.keys(scores)) {
-        if (!(k in agg) || scores[k] > agg[k]) agg[k] = scores[k];
-      }
+      const p = await classifyCanvas();
+      if (p > nsfw) nsfw = p;
     }
 
-    const t = cfg.thresholds;
-    const violations = [];
-    if (engine === 'marqo') {
-      // one calibrated probability; flagSexy = the UI's "stricter" toggle
-      const thr = cfg.flagSexy ? (t.nsfwStrict ?? 0.6) : (t.nsfw ?? 0.8);
-      if ((agg.nsfw ?? 0) >= thr) violations.push(['nsfw', agg.nsfw]);
-    } else {
-      if ((agg.porn ?? 0) >= t.porn) violations.push(['porn', agg.porn]);
-      if ((agg.hentai ?? 0) >= t.hentai) violations.push(['hentai', agg.hentai]);
-      if (cfg.flagSexy && (agg.sexy ?? 0) >= t.sexy) violations.push(['sexy', agg.sexy]);
-    }
-    violations.sort((a, b) => b[1] - a[1]);
-    const flagged = violations.length > 0;
+    const thr = cfg.flagSexy
+      ? (cfg.thresholds.nsfwStrict ?? 0.6)
+      : (cfg.thresholds.nsfw ?? 0.8);
+    const flagged = nsfw >= thr;
 
     ipcRenderer.send('nsfw-result', {
       displayId: cfg.displayId,
-      engine,
+      engine: 'marqo',
       flagged,
-      category: flagged ? violations[0][0] : null,
-      score: flagged ? violations[0][1] : 0,
-      scores: agg,
+      category: flagged ? 'nsfw' : null,
+      score: flagged ? nsfw : 0,
+      scores: { nsfw },
     });
   } catch (e) {
     status('classify error: ' + e.message);
@@ -220,12 +168,28 @@ async function tick() {
 
 ipcRenderer.on('start-capture', async (_e, opts) => {
   cfg = { ...cfg, ...opts };
-  if (!engine) await loadEngine();
+  if (!ready) {
+    try {
+      await loadEngine();
+    } catch (e) {
+      // fail loud: main surfaces a NOT PROTECTED state to the user
+      status('MODEL LOAD FAILED: ' + e.message);
+      ipcRenderer.send('detector-failed', {
+        displayId: cfg.displayId,
+        message: e.message,
+      });
+      return;
+    }
+  }
   loop();
   try {
     await startCapture(opts.sourceId);
   } catch (e) {
     status('capture failed: ' + e.message);
+    ipcRenderer.send('detector-failed', {
+      displayId: cfg.displayId,
+      message: 'screen capture failed: ' + e.message,
+    });
   }
 });
 

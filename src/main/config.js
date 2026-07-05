@@ -13,15 +13,9 @@ const DEFAULTS = {
   // flags on the worst region.
   tiling: { enabled: true, cols: 2, rows: 2 },
 
-  // detection engine: 'marqo' (ViT-tiny ONNX, one NSFW probability, default)
-  // or 'nsfwjs' (MobileNetV2 5-class legacy). marqo falls back to nsfwjs if
-  // its model file is missing.
-  engine: 'marqo',
-
-  // classification thresholds per category (0..1). Above = flagged.
-  // porn/hentai/sexy apply to the nsfwjs engine; nsfw/nsfwStrict to marqo
-  // (nsfwStrict is used when the "flag suggestive" setting is on).
-  thresholds: { porn: 0.6, hentai: 0.6, sexy: 0.85, nsfw: 0.8, nsfwStrict: 0.6 },
+  // NSFW probability thresholds (0..1). Above = flagged. `nsfw` is the
+  // Balanced setting; `nsfwStrict` is used when Strict sensitivity is on.
+  thresholds: { nsfw: 0.8, nsfwStrict: 0.6 },
 
   // whether "sexy" (suggestive but clothed) counts as a violation.
   // off by default to cut false positives on normal browsing/ads.
@@ -62,9 +56,6 @@ const DEFAULTS = {
 
   // run the guardian watchdog process that restarts the app if it's killed.
   watchdog: true,
-
-  // optional explicit model URL. null = use bundled/local then nsfwjs default.
-  modelUrl: null,
 
   // message shown on the blocking overlay.
   message:

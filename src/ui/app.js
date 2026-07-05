@@ -1,4 +1,4 @@
-/* NSFW Guard — dashboard + onboarding renderer.
+/* Aegis — dashboard + onboarding renderer.
    Talks to main only through window.guard (see ui-preload.js). */
 
 const root = document.getElementById('root');
@@ -81,7 +81,7 @@ function renderOnboarding() {
       shell(`
         <div class="onb-shield">🛡️</div>
         <h1>Welcome — you've taken the first step.</h1>
-        <p class="sub">NSFW Guard quietly watches your screen and steps in the moment things slip, so a single urge doesn't undo your progress. Everything stays on this device.</p>
+        <p class="sub">Aegis quietly watches your screen and steps in the moment things slip, so a single urge doesn't undo your progress. Everything stays on this device.</p>
         <label class="field"><span>What should we call you?</span>
           <input class="input" id="f-name" placeholder="Your name or nickname" value="${data.name}" />
         </label>
@@ -243,14 +243,24 @@ function renderDashboard() {
     active: ['active', 'Protected'],
     paused: ['paused', 'Paused'],
     cooling: ['cooling', 'Disabling…'],
+    failed: ['failed', 'NOT PROTECTED'],
   }[s.status] || ['active', 'Protected'];
+
+  const failedBanner = s.status === 'failed'
+    ? `<div class="banner-failed">
+         <b>Protection is not running.</b>
+         <span>${escapeHtml(s.detectorError || 'The detection engine failed to start.')}</span>
+         <span>Try restarting Aegis. If this keeps happening, reinstall — this build may be corrupted.</span>
+       </div>`
+    : '';
 
   root.innerHTML = `
     <div class="dash">
+      ${failedBanner}
       <div class="topbar">
         <div class="brand">
           <div class="mark">🛡️</div>
-          <div><b>NSFW Guard</b><small>100% on-device · nothing leaves your computer</small></div>
+          <div><b>Aegis</b><small>100% on-device · nothing leaves your computer</small></div>
         </div>
         <div class="topbar-right">
           <span class="pill ${statusPill[0]}"><span class="dot"></span>${statusPill[1]}</span>
@@ -337,8 +347,13 @@ function openSettings() {
     <div class="modal-actions">
       <button class="btn btn-ghost" data-cancel>Cancel</button>
       <button class="btn btn-primary" data-save>Save</button>
+    </div>
+    <div class="danger-zone">
+      <span>Removing Aegis is locked. Uninstalling from Windows won't work until you unlock it here.</span>
+      <button class="btn btn-danger-ghost" data-uninstall>Allow uninstall…</button>
     </div>`);
   modalRoot.querySelector('[data-cancel]').addEventListener('click', closeModal);
+  modalRoot.querySelector('[data-uninstall]').addEventListener('click', openUninstall);
   modalRoot.querySelector('[data-save]').addEventListener('click', async () => {
     const pw = val('#s-pw');
     const patch = {
@@ -348,6 +363,28 @@ function openSettings() {
     const r = await window.guard.updateSettings(pw, patch);
     if (!r.ok) { setErr('#s-err', 'Incorrect password.'); return; }
     closeModal();
+  });
+}
+
+function openUninstall() {
+  modal(`
+    <h2>Allow Aegis to be uninstalled?</h2>
+    <p>This unlocks removal and then <b>stops protection</b>. Your accountability partner's password is required. After this, uninstall Aegis from Windows Settings within the next few minutes.</p>
+    <label class="field"><span>Lock password</span>
+      <input class="input" type="password" id="u-pw" placeholder="Partner's password" autofocus />
+    </label>
+    <div class="err" id="u-err"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-cancel>Never mind</button>
+      <button class="btn btn-danger" data-go>Unlock &amp; stop Aegis</button>
+    </div>`);
+  modalRoot.querySelector('[data-cancel]').addEventListener('click', () => openSettings());
+  modalRoot.querySelector('[data-go]').addEventListener('click', async () => {
+    const r = await window.guard.authorizeUninstall(val('#u-pw'));
+    if (!r.ok) { setErr('#u-err', r.reason === 'io' ? 'Could not unlock. Try again.' : 'Incorrect password.'); return; }
+    modal(`
+      <h2>Uninstall unlocked</h2>
+      <p>Aegis has stopped. You can now uninstall it from <b>Windows Settings → Apps</b>. If you don't, just reopen Aegis and protection resumes — and removal locks again.</p>`);
   });
 }
 
@@ -400,7 +437,7 @@ function showCooldown() {
 
 function openQuit() {
   modal(`
-    <h2>Quit NSFW Guard?</h2>
+    <h2>Quit Aegis?</h2>
     <p>Quitting ends real-time protection completely. The lock password is required.</p>
     <label class="field"><span>Lock password</span>
       <input class="input" type="password" id="q-pw" placeholder="Partner's password" autofocus />

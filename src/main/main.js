@@ -1,4 +1,4 @@
-// NSFW Guard — main process.
+// Aegis — main process.
 // Orchestrates: the dashboard/onboarding UI, screen-source handoff, the hidden
 // detector, the blocking overlay, the detection state machine, accountability
 // (streaks + incident log), tamper-resistance (locked + cooldown-gated disable
@@ -81,6 +81,8 @@ function runApp() {
   async function init() {
     try {
       log(`[init] start packaged=${app.isPackaged} userData=${app.getPath('userData')}`);
+      // a normal launch means we're NOT mid-uninstall — clear any stale grant
+      try { fs.unlinkSync(flagPath('uninstall-allowed')); } catch {}
       cfg = config.load();
       app.setLoginItemSettings({ openAtLogin: !!cfg.autoStart });
       store.beginProtection();
@@ -112,7 +114,7 @@ function runApp() {
       minHeight: 660,
       show: true,
       backgroundColor: '#0b0d12',
-      title: 'NSFW Guard',
+      title: 'Aegis',
       autoHideMenuBar: true,
       webPreferences: {
         preload: path.join(__dirname, '..', 'preload', 'ui-preload.js'),
@@ -167,7 +169,6 @@ function runApp() {
 
   function detectorParams() {
     return {
-      engine: cfg.engine,
       marqoModelPath: modelAsset('marqo-nsfw-384.onnx'),
       marqoMetaPath: modelAsset('marqo-nsfw-384.json'),
       fps: cfg.fps,
@@ -262,6 +263,7 @@ function runApp() {
     detectors = [];
     overlays = new Map();
     fsmByDisplay.clear();
+    detectorError = null; // a rebuild may recover a failed detector
     await createCapture();
   }
 
@@ -310,8 +312,19 @@ function runApp() {
 
   ipcMain.on('detector-status', (_e, msg) => log('[detector]', msg));
 
+  // Fail loud: if a detector can't load its model or capture the screen, the
+  // user must know they are NOT protected — never fail silently.
+  let detectorError = null;
+  ipcMain.on('detector-failed', (_e, { displayId, message }) => {
+    detectorError = message;
+    log(`[detector] FAILED on display ${displayId}: ${message}`);
+    pushUpdate();
+    showUI();
+  });
+
   // ---- UI IPC ------------------------------------------------------------
   function status() {
+    if (detectorError) return 'failed';
     if (cooldown) return 'cooling';
     return paused ? 'paused' : 'active';
   }
@@ -319,6 +332,7 @@ function runApp() {
     return {
       ...store.snapshot(),
       status: status(),
+      detectorError,
       cooldownRemainingMs: cooldown ? Math.max(0, cooldown.endsAt - Date.now()) : 0,
       settings: {
         fps: cfg.fps,
@@ -436,7 +450,7 @@ function runApp() {
   function updateTray() {
     if (!tray) return;
     const menu = Menu.buildFromTemplate([
-      { label: `NSFW Guard — ${status()}`, enabled: false },
+      { label: `Aegis — ${status()}`, enabled: false },
       { type: 'separator' },
       { label: 'Open dashboard', click: showUI },
       {
@@ -454,7 +468,7 @@ function runApp() {
       },
     ]);
     tray.setContextMenu(menu);
-    tray.setToolTip(`NSFW Guard — ${status()}`);
+    tray.setToolTip(`Aegis — ${status()}`);
   }
 
   // quit must pass the same locked + cooldown gate as disabling
@@ -462,6 +476,26 @@ function runApp() {
     if (security.hasPassword() && !security.verifyPassword(pw)) {
       return { ok: false, reason: 'bad-password' };
     }
+    doQuit();
+    return { ok: true };
+  });
+
+  // Guarded uninstall: the installer's uninstaller refuses to run unless this
+  // flag exists. We only write it after the partner password is verified, then
+  // fully stop Aegis (and its watchdog) so the uninstaller isn't blocked. The
+  // flag is deleted on the next normal launch, so it's valid only while the app
+  // is intentionally stopped for removal.
+  ipcMain.handle('ui:authorizeUninstall', (_e, pw) => {
+    if (security.hasPassword() && !security.verifyPassword(pw)) {
+      return { ok: false, reason: 'bad-password' };
+    }
+    try {
+      fs.writeFileSync(flagPath('uninstall-allowed'), String(Date.now()));
+    } catch (e) {
+      log('[uninstall] could not write flag: ' + e.message);
+      return { ok: false, reason: 'io' };
+    }
+    log('[uninstall] authorized — stopping Aegis for removal');
     doQuit();
     return { ok: true };
   });

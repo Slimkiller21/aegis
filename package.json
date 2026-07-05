@@ -1,7 +1,7 @@
 {
   "name": "nsfw-guard",
-  "version": "0.3.0",
-  "description": "Local, always-on desktop guard that detects on-screen NSFW content in real time and blocks it. Built to help people stay off compulsive habits. 100% offline — screen frames never leave the device.",
+  "version": "0.4.0",
+  "description": "Aegis — local, always-on desktop guard that detects on-screen NSFW content in real time and blocks it. Built to help people stay off compulsive habits. 100% offline — screen frames never leave the device. (package name kept as nsfw-guard so the userData folder — streaks, settings, lock password — survives the rebrand)",
   "main": "src/main/main.js",
   "author": "Slimkiller21",
   "license": "MIT",
@@ -11,8 +11,6 @@
     "dist": "electron-builder"
   },
   "dependencies": {
-    "@tensorflow/tfjs": "^4.22.0",
-    "nsfwjs": "^4.2.1",
     "onnxruntime-node": "^1.27.0"
   },
   "devDependencies": {
@@ -20,27 +18,30 @@
     "electron-builder": "^26.15.3"
   },
   "build": {
-    "appId": "com.slimkiller.nsfwguard",
-    "productName": "NSFW Guard",
+    "appId": "com.slimkiller.aegis",
+    "productName": "Aegis",
     "files": [
       "src/**/*",
       "assets/**/*",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "!node_modules/@tensorflow/**",
+      "!node_modules/nsfwjs/**"
     ],
     "asar": true,
     "asarUnpack": [
-      "node_modules/nsfwjs/dist/models/**",
       "node_modules/onnxruntime-node/**",
       "assets/models/**"
     ],
-    "artifactName": "NSFW-Guard-Setup.exe",
+    "artifactName": "Aegis-Setup.exe",
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "assets/icon.ico"
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "include": "build/uninstall-guard.nsh"
     }
   }
 }

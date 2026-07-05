@@ -59,7 +59,7 @@ $name = ''
 try { $name = (Get-Process -Id $procId -ErrorAction Stop).ProcessName.ToLower() } catch {}
 
 $browsers  = @('chrome','msedge','firefox','brave','opera','vivaldi','arc','chromium','thorium','waterfox','librewolf','iexplore','maxthon','yandex')
-$protected = @('nsfw guard','nsfwguard','explorer','dwm','searchhost','searchapp','startmenuexperiencehost','shellexperiencehost','textinputhost','applicationframehost','sihost','lockapp','systemsettings')
+$protected = @('aegis','nsfw guard','nsfwguard','explorer','dwm','searchhost','searchapp','startmenuexperiencehost','shellexperiencehost','textinputhost','applicationframehost','sihost','lockapp','systemsettings')
 
 foreach ($p in $protected) { if ($name -like "*$p*") { Write-Output "skip:$name"; exit } }
 

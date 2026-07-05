@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('guard', {
   cancelDisable: () => ipcRenderer.invoke('ui:cancelDisable'),
   resume: () => ipcRenderer.invoke('ui:resume'),
   requestQuit: (pw) => ipcRenderer.invoke('ui:requestQuit', pw),
+  authorizeUninstall: (pw) => ipcRenderer.invoke('ui:authorizeUninstall', pw),
   updateSettings: (pw, patch) => ipcRenderer.invoke('ui:updateSettings', { pw, patch }),
   exportLog: () => ipcRenderer.invoke('ui:exportLog'),
   // live push of state changes (status, new incidents, cooldown ticks)
