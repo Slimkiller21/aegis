@@ -340,6 +340,12 @@ function openSettings() {
     <label class="field"><span>Cooldown before protection can be disabled (seconds)</span>
       <input class="input" type="number" id="s-cool" min="0" max="3600" value="${Math.round((set.disableCooldownMs||0)/1000)}" />
     </label>
+    <label class="field"><span>Lockdown — auto-revive Aegis if it's force-killed</span>
+      <select class="select" id="s-lockdown">
+        <option value="true" ${set.lockdown !== false ? 'selected' : ''}>On (recommended)</option>
+        <option value="false" ${set.lockdown === false ? 'selected' : ''}>Off</option>
+      </select>
+    </label>
     <label class="field"><span>Lock password</span>
       <input class="input" type="password" id="s-pw" placeholder="Required to save" />
     </label>
@@ -359,6 +365,7 @@ function openSettings() {
     const patch = {
       flagSexy: val('#s-sexy') === 'true',
       disableCooldownMs: (parseInt(val('#s-cool'), 10) || 0) * 1000,
+      lockdown: val('#s-lockdown') === 'true',
     };
     const r = await window.guard.updateSettings(pw, patch);
     if (!r.ok) { setErr('#s-err', 'Incorrect password.'); return; }

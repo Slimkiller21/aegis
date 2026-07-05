@@ -46,16 +46,17 @@ const DEFAULTS = {
   // start automatically on login (recovery tool should always be on).
   autoStart: true,
 
-  // tamper-resistance level: 'strict' = watchdog restart + locked disable +
-  // cooldown. (Heavier 'lockdown' service mode is a separate future build.)
-  tamperLevel: 'strict',
-
   // deliberate delay before protection can actually be turned off, even with
   // the right password. Defeats impulsive "just this once" disabling.
   disableCooldownMs: 60000,
 
   // run the guardian watchdog process that restarts the app if it's killed.
   watchdog: true,
+
+  // Lockdown tier: a per-user Scheduled Task ("AegisGuard") that resurrects
+  // Aegis within a minute if app + watchdog are both killed. Removed on
+  // authorized quit/uninstall. See lockdown.js.
+  lockdown: true,
 
   // message shown on the blocking overlay.
   message:

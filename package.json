@@ -1,6 +1,6 @@
 {
   "name": "nsfw-guard",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Aegis — local, always-on desktop guard that detects on-screen NSFW content in real time and blocks it. Built to help people stay off compulsive habits. 100% offline — screen frames never leave the device. (package name kept as nsfw-guard so the userData folder — streaks, settings, lock password — survives the rebrand)",
   "main": "src/main/main.js",
   "author": "Slimkiller21",
@@ -11,6 +11,7 @@
     "dist": "electron-builder"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "onnxruntime-node": "^1.27.0"
   },
   "devDependencies": {
@@ -33,6 +34,13 @@
       "assets/models/**"
     ],
     "artifactName": "Aegis-Setup.exe",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Slimkiller21",
+        "repo": "aegis"
+      }
+    ],
     "win": {
       "target": "nsis",
       "icon": "assets/icon.ico"

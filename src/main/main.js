@@ -37,6 +37,8 @@ function runApp() {
   const security = require('./security');
   const enforcement = require('./enforcement');
   const quotes = require('./quotes');
+  const updater = require('./updater');
+  const lockdown = require('./lockdown');
 
   // Persistent log so a packaged build (no console) is still debuggable.
   function log(...args) {
@@ -94,6 +96,14 @@ function runApp() {
       createTray();
       startHeartbeat();
       if (cfg.watchdog) ensureWatchdog();
+      if (cfg.lockdown !== false) lockdown.start(log);
+      updater.start({
+        log,
+        prepareShutdown: () => {
+          app.isQuitting = true;
+          try { fs.writeFileSync(flagPath('shutdown.flag'), String(Date.now())); } catch {}
+        },
+      });
       log('[init] complete');
 
       // displays come and go (docking, unplugging) -> rebuild coverage
@@ -340,6 +350,7 @@ function runApp() {
         flagSexy: cfg.flagSexy,
         message: cfg.message,
         disableCooldownMs: cfg.disableCooldownMs,
+        lockdown: cfg.lockdown !== false,
       },
     };
   }
@@ -417,6 +428,10 @@ function runApp() {
     Object.assign(cfg, patch);
     config.save(cfg);
     restartDetector();
+    if ('lockdown' in patch) {
+      if (patch.lockdown) lockdown.start(log);
+      else lockdown.remove();
+    }
     pushUpdate();
     return { ok: true };
   });
@@ -476,7 +491,9 @@ function runApp() {
     if (security.hasPassword() && !security.verifyPassword(pw)) {
       return { ok: false, reason: 'bad-password' };
     }
-    doQuit();
+    // authorized stop: the lockdown task must stand down too, or it would
+    // resurrect the app a few minutes after a legitimate quit
+    lockdown.remove(() => doQuit());
     return { ok: true };
   });
 
@@ -496,7 +513,7 @@ function runApp() {
       return { ok: false, reason: 'io' };
     }
     log('[uninstall] authorized — stopping Aegis for removal');
-    doQuit();
+    lockdown.remove(() => doQuit());
     return { ok: true };
   });
 

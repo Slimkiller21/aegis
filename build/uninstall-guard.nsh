@@ -15,6 +15,9 @@
     Abort
 
   aegis_allowed:
+    ; stand the Lockdown scheduled task down (app-side removal is the primary
+    ; path; this is belt-and-braces if it didn't run)
+    nsExec::Exec 'schtasks /Delete /F /TN "AegisGuard"'
     ; make sure the app and its watchdog are fully stopped so files aren't locked
     nsExec::Exec 'taskkill /F /T /IM "Aegis.exe"'
     Sleep 1000
