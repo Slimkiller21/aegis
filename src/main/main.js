@@ -289,25 +289,35 @@ function runApp() {
     if (payload.flagged) {
       const s = payload.scores || {};
       log('[flagged]', `${payload.engine || '?'}:${payload.category}`,
-        `nsfw=${(s.nsfw ?? 0).toFixed(2)} porn=${(s.porn ?? 0).toFixed(2)} sexy=${(s.sexy ?? 0).toFixed(2)} hentai=${(s.hentai ?? 0).toFixed(2)}`);
+        `full=${(s.full ?? 0).toFixed(2)} tile=${(s.tile ?? 0).toFixed(2)} nsfw=${(s.nsfw ?? 0).toFixed(2)}`);
     }
     const id = String(payload.displayId ?? 'primary');
     const fsm = fsmFor(id);
     const now = Date.now();
     if (payload.flagged) {
       fsm.cleanStreak = 0;
-      // Act once per episode (cooldown-gated) so persistent content re-triggers
-      // but a single frame doesn't spam-close.
-      if (now - (fsm.lastActionAt || 0) >= (cfg.actionCooldownMs || 6000)) {
+      // Temporal confirmation: require several CONSECUTIVE flagged frames before
+      // acting. Real NSFW sits on screen and scores high frame after frame; a
+      // fast video cut (e.g. an anime trailer) may spike one frame near the
+      // threshold but won't sustain it. This kills the dominant false-positive
+      // mode without slowing down on genuinely explicit content.
+      fsm.flagStreak = (fsm.flagStreak || 0) + 1;
+      if (
+        fsm.flagStreak >= (cfg.flagConfirmFrames || 3) &&
+        now - (fsm.lastActionAt || 0) >= (cfg.actionCooldownMs || 6000)
+      ) {
         fsm.lastActionAt = now;
         fsm.state = 'WARNING';
         enforce(id);
         showQuoteOverlay(id);
         if (store.recordIncident(payload.category, payload.score)) pushUpdate();
       }
-    } else if (fsm.state === 'WARNING') {
-      fsm.cleanStreak += 1;
-      if (fsm.cleanStreak >= cfg.clearFrames) fsm.state = 'CLEAN';
+    } else {
+      fsm.flagStreak = 0; // one clean frame breaks the confirmation run
+      if (fsm.state === 'WARNING') {
+        fsm.cleanStreak += 1;
+        if (fsm.cleanStreak >= cfg.clearFrames) fsm.state = 'CLEAN';
+      }
     }
   });
 

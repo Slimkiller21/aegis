@@ -15,7 +15,17 @@ const DEFAULTS = {
 
   // NSFW probability thresholds (0..1). Above = flagged. `nsfw` is the
   // Balanced setting; `nsfwStrict` is used when Strict sensitivity is on.
-  thresholds: { nsfw: 0.8, nsfwStrict: 0.6 },
+  // Full-frame thresholds (nsfw=Balanced, nsfwStrict=Strict). `tile` is the
+  // very-high bar a single crop must clear to count on its own, above the
+  // ~0.91 ceiling clothed anime hit in testing; `tileMinFull` requires the
+  // whole frame to be broadly suspicious before a tile can trigger. Real
+  // full-screen explicit content scores 0.88+ full-frame, well clear of these.
+  thresholds: { nsfw: 0.82, nsfwStrict: 0.72, tile: 0.95, tileMinFull: 0.35 },
+
+  // Consecutive flagged frames required before enforcing (temporal debounce).
+  // At ~2 fps this is roughly one second of sustained NSFW, which a fast video
+  // cut can't fake but a real image/video on screen easily clears.
+  flagConfirmFrames: 3,
 
   // whether "sexy" (suggestive but clothed) counts as a violation.
   // off by default to cut false positives on normal browsing/ads.

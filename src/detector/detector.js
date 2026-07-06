@@ -137,19 +137,31 @@ async function tick() {
   if (!ready || classifying || !vid.videoWidth) return;
   classifying = true;
   try {
-    // worst (max) NSFW probability across the whole frame + every tile
-    let nsfw = 0;
-    for (const rg of regions(vid.videoWidth, vid.videoHeight)) {
+    // The FULL-FRAME score is the trustworthy signal. Tiles (crops) are only a
+    // high-confidence backstop for small on-screen NSFW, because cropping a
+    // clothed anime character makes this model score it like hentai (real data:
+    // Naruto/Jujutsu posters hit 0.84-0.91 on a tile but ~0.16/0.65 full-frame).
+    const rs = regions(vid.videoWidth, vid.videoHeight);
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.drawImage(vid, rs[0].sx, rs[0].sy, rs[0].sw, rs[0].sh, 0, 0, cv.width, cv.height);
+    const full = await classifyCanvas();
+
+    let tile = 0;
+    for (let i = 1; i < rs.length; i++) {
       ctx.clearRect(0, 0, cv.width, cv.height);
-      ctx.drawImage(vid, rg.sx, rg.sy, rg.sw, rg.sh, 0, 0, cv.width, cv.height);
+      ctx.drawImage(vid, rs[i].sx, rs[i].sy, rs[i].sw, rs[i].sh, 0, 0, cv.width, cv.height);
       const p = await classifyCanvas();
-      if (p > nsfw) nsfw = p;
+      if (p > tile) tile = p;
     }
 
-    const thr = cfg.flagSexy
-      ? (cfg.thresholds.nsfwStrict ?? 0.6)
-      : (cfg.thresholds.nsfw ?? 0.8);
-    const flagged = nsfw >= thr;
+    const t = cfg.thresholds;
+    const fullThr = cfg.flagSexy ? (t.nsfwStrict ?? 0.72) : (t.nsfw ?? 0.82);
+    const tileThr = t.tile ?? 0.95; // above the ~0.91 clothed-anime tile ceiling
+    const tileMinFull = t.tileMinFull ?? 0.35; // frame must be broadly suspicious
+
+    // full-screen NSFW OR a very confident tile on an already-suspicious frame
+    const flagged = full >= fullThr || (tile >= tileThr && full >= tileMinFull);
+    const nsfw = Math.max(full, flagged ? tile : 0);
 
     ipcRenderer.send('nsfw-result', {
       displayId: cfg.displayId,
@@ -157,7 +169,7 @@ async function tick() {
       flagged,
       category: flagged ? 'nsfw' : null,
       score: flagged ? nsfw : 0,
-      scores: { nsfw },
+      scores: { nsfw, full, tile },
     });
   } catch (e) {
     status('classify error: ' + e.message);
